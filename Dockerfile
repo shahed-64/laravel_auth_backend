@@ -1,6 +1,6 @@
 # ---------- Stage 1: Backend ----------
 
-FROM php:8.2-cli AS backend
+FROM php:8.3-cli AS backend
 
 RUN apt-get update && apt-get install -y \
     git unzip zip curl libzip-dev \
@@ -36,7 +36,7 @@ RUN npm run build
 
 # ---------- Stage 3: Production ----------
 
-FROM php:8.2-cli
+FROM php:8.3-cli
 
 RUN apt-get update && apt-get install -y \
     git unzip zip curl libzip-dev \
