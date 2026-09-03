@@ -1,0 +1,1 @@
+import{f as e,h as t,i as n,w as r}from"./index-CMw_L4X6.js";var i={};function a(n,i){return r(),t(`div`,null,[...i[0]||=[e(`h1`,null,`Hi !`,-1)]])}var o=n(i,[[`render`,a]]);export{o as default};

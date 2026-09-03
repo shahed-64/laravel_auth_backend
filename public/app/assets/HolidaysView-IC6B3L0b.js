@@ -1,0 +1,1 @@
+import{f as e,h as t,u as n,v as r,w as i}from"./index-DiXDGOiZ.js";import a from"./dashPageView-CeM3fx7U.js";var o={__name:`HolidaysView`,setup(o){return(o,s)=>(i(),t(n,null,[r(a),s[0]||=e(`div`,null,[e(`h1`,null,`Hi !`)],-1)],64))}};export{o as default};

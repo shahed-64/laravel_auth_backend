@@ -4,11 +4,9 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 
-Route::get('/', function () {
-    return response()->json([
-        'message' => 'Laravel backend is running'
-    ]);
-});
+Route::get('/{any?}', function () {
+    return file_get_contents(public_path('app/index.html'));
+})->where('any', '^(?!api).*$');
 
 Route::get('dashboard', function () {
     return Inertia::render('Dashboard');

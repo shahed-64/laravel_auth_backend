@@ -1,0 +1,1 @@
+var e=`http://coaching.test/storage/`,t=t=>t?.image?t.image.startsWith(`http`)?t.image:`${e}/${t.image}`:`https://ui-avatars.com/api/?name=Student`;export{t};

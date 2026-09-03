@@ -1,0 +1,1 @@
+import{T as e,g as t,i as n,p as r}from"./index-DCHgoA7J.js";var i={};function a(n,i){return e(),t(`div`,null,[...i[0]||=[r(`h1`,null,`Hi !`,-1)]])}var o=n(i,[[`render`,a]]);export{o as default};

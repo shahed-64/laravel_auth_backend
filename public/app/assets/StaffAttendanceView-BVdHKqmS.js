@@ -1,0 +1,1 @@
+import{f as e,h as t,i as n,w as r}from"./index-C6Z_kakC.js";var i={};function a(n,i){return r(),t(`div`,null,[...i[0]||=[e(`h1`,null,`hi`,-1)]])}var o=n(i,[[`render`,a]]);export{o as default};

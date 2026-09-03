@@ -1,0 +1,1 @@
+import{f as e,h as t,u as n,v as r,w as i}from"./index-DMLoTSNq.js";import a from"./dashPageView-Dr7oJ4-5.js";var o={__name:`SubjectView`,setup(o){return(o,s)=>(i(),t(n,null,[r(a),s[0]||=e(`div`,null,[e(`h1`,null,`Hi !`)],-1)],64))}};export{o as default};

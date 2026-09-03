@@ -11,10 +11,15 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 COPY . .
 
+# 👉 minimal env file (IMPORTANT)
+RUN touch .env
+
+# 👉 install dependencies
 RUN composer install \
     --no-dev \
     --optimize-autoloader \
-    --no-interaction
+    --no-interaction \
+    --no-scripts
 
 
 # ---------- Stage 2: Frontend ----------
@@ -37,17 +42,19 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /var/www
 
-COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
-
 COPY --from=backend /var/www .
 COPY --from=frontend /app/public/build ./public/build
 
-RUN chmod -R 775 storage bootstrap/cache || true
+# 👉 permissions fix
+RUN chmod -R 777 storage bootstrap/cache || true
+
+# 👉 ensure .env exists
+RUN touch .env
 
 EXPOSE 10000
 
-# Runtime commands
-CMD php artisan optimize:clear && \
+CMD php artisan config:clear && \
+    php artisan cache:clear && \
     php artisan config:cache && \
     php artisan migrate --force && \
-    php artisan serve --host=0.0.0.0 --port=${PORT:-10000}
+    php artisan serve --host=0.0.0.0 --port=${PORT}

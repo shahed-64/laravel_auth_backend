@@ -1,0 +1,1 @@
+var e=`http://192.168.0.103/storage/`,t=t=>t?.image?t.image.startsWith(`http`)?t.image:`${e}/${t.image}`:`https://ui-avatars.com/api/?name=Student`;export{t};

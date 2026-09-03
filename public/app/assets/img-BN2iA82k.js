@@ -1,0 +1,1 @@
+var e=`http://Batikkrom.build/storage`,t=t=>!t||!t.image?`https://i.pravatar.cc/150`:typeof t.image==`string`&&t.image.startsWith(`http`)?t.image:`${e}/${String(t.image).replace(/^public\//,``).replace(/^storage\//,``)}`;export{t};

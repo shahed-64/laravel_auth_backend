@@ -1,0 +1,1 @@
+import{f as e,h as t,u as n,v as r,w as i}from"./index-CiN4kswq.js";import a from"./dashPageView-BmwiFX9J.js";var o={__name:`SectionView`,setup(o){return(o,s)=>(i(),t(n,null,[r(a),s[0]||=e(`div`,null,[e(`h1`,null,`hi !`)],-1)],64))}};export{o as default};

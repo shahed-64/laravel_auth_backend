@@ -14,8 +14,10 @@ class Payment extends Model
         'due_amount',
         'payment_method',
         'payment_date',
+        'month',
+        'admission_fee',
+        'exam_fee',
         'status',
-        'month'
     ];
 
     public function student()

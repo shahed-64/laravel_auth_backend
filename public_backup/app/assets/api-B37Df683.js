@@ -1,0 +1,1 @@
+var e=axios.create({baseURL:`${window.location.origin}/api`,headers:{Accept:`application/json`}});e.interceptors.request.use(e=>{let t=localStorage.getItem(`token`);return t&&(e.headers.Authorization=`Bearer ${t}`),startLoading(),e},e=>(stopLoading(),Promise.reject(e))),e.interceptors.response.use(e=>(stopLoading(),e),e=>(stopLoading(),Promise.reject(e)));export{e as t};

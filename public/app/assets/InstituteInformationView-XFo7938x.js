@@ -1,0 +1,1 @@
+import{T as e,m as t}from"./index-DYDHgbkL.js";import n from"./dashPageView-Dj9Sp9u0.js";var r={__name:`InstituteInformationView`,setup(r){return(r,i)=>(e(),t(n))}};export{r as default};
