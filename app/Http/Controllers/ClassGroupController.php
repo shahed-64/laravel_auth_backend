@@ -13,7 +13,10 @@ class ClassGroupController extends Controller
      */
     public function index()
     {
-        $groups = ClassGroup::with('subjects')
+        $groups = ClassGroup::with([
+            'subjects',
+            'groupSubjectMappings.subject',
+        ])
             ->latest()
             ->get();
 
@@ -30,19 +33,42 @@ class ClassGroupController extends Controller
     {
         $validated = $request->validate([
             'group_name' => 'required|string|max:255|unique:class_groups,group_name',
+
+            // Existing Optional Subject
             'subject_ids' => 'nullable|array',
             'subject_ids.*' => 'exists:subjects,id',
+
+            // New Group Subject
+            'group_subject_ids' => 'nullable|array',
+            'group_subject_ids.*' => 'exists:subjects,id',
         ]);
 
         $group = ClassGroup::create([
             'group_name' => $validated['group_name'],
         ]);
 
+        // Existing functionality - unchanged
         if (!empty($validated['subject_ids'])) {
             $group->subjects()->sync($validated['subject_ids']);
         }
 
-        $group->load('subjects');
+        // New Group Subject
+        if (!empty($validated['group_subject_ids'])) {
+            $group->groupSubjectMappings()->createMany(
+                collect($validated['group_subject_ids'])
+                    ->map(function ($subjectId) {
+                        return [
+                            'subject_id' => $subjectId,
+                        ];
+                    })
+                    ->toArray()
+            );
+        }
+
+        $group->load([
+            'subjects',
+            'groupSubjectMappings.subject',
+        ]);
 
         return response()->json([
             'success' => true,
@@ -56,7 +82,10 @@ class ClassGroupController extends Controller
      */
     public function show(ClassGroup $classGroup)
     {
-        $classGroup->load('subjects');
+        $classGroup->load([
+            'subjects',
+            'groupSubjectMappings.subject',
+        ]);
 
         return response()->json([
             'success' => true,
@@ -71,17 +100,44 @@ class ClassGroupController extends Controller
     {
         $validated = $request->validate([
             'group_name' => 'required|string|max:255|unique:class_groups,group_name,' . $classGroup->id,
+
+            // Existing Optional Subject
             'subject_ids' => 'nullable|array',
             'subject_ids.*' => 'exists:subjects,id',
+
+            // New Group Subject
+            'group_subject_ids' => 'nullable|array',
+            'group_subject_ids.*' => 'exists:subjects,id',
         ]);
 
         $classGroup->update([
             'group_name' => $validated['group_name'],
         ]);
 
-        $classGroup->subjects()->sync($validated['subject_ids'] ?? []);
+        // Existing functionality - unchanged
+        $classGroup->subjects()->sync(
+            $validated['subject_ids'] ?? []
+        );
 
-        $classGroup->load('subjects');
+        // New Group Subject
+        $classGroup->groupSubjectMappings()->delete();
+
+        if (!empty($validated['group_subject_ids'])) {
+            $classGroup->groupSubjectMappings()->createMany(
+                collect($validated['group_subject_ids'])
+                    ->map(function ($subjectId) {
+                        return [
+                            'subject_id' => $subjectId,
+                        ];
+                    })
+                    ->toArray()
+            );
+        }
+
+        $classGroup->load([
+            'subjects',
+            'groupSubjectMappings.subject',
+        ]);
 
         return response()->json([
             'success' => true,

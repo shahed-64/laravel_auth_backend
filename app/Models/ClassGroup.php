@@ -20,4 +20,11 @@ class ClassGroup extends Model
             'subject_id'
         );
     }
+    public function groupSubjectMappings()
+{
+    return $this->hasMany(
+        GroupSubjectMapping::class,
+        'class_group_id'
+    );
+}
 }

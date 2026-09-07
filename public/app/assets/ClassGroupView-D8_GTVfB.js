@@ -1,1 +1,0 @@
-import{T as e,m as t}from"./index-BSszANQ9.js";import n from"./dashPageView-hz32vz_k.js";var r={__name:`ClassGroupView`,setup(r){return(r,i)=>(e(),t(n))}};export{r as default};
