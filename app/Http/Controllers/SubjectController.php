@@ -8,6 +8,9 @@ use Illuminate\Validation\Rule;
 
 class SubjectController extends Controller
 {
+    /**
+     * Display a listing of subjects.
+     */
     public function index()
     {
         $subjects = Subject::latest()->get();
@@ -18,21 +21,40 @@ class SubjectController extends Controller
         ]);
     }
 
+    /**
+     * Show the form for creating a new subject.
+     */
     public function create()
     {
         //
     }
 
+    /**
+     * Store a newly created subject.
+     */
     public function store(Request $request)
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'code' => ['required', 'string', 'max:50', 'unique:subjects,code'],
+
+            'code' => [
+                'required',
+                'string',
+                'max:50',
+                'unique:subjects,code',
+            ],
+
+            'full_mark' => [
+                'required',
+                'numeric',
+                'min:1',
+            ],
         ]);
 
         $subject = Subject::create([
             'name' => $validated['name'],
             'code' => strtoupper($validated['code']),
+            'full_mark' => $validated['full_mark'],
         ]);
 
         return response()->json([
@@ -42,6 +64,9 @@ class SubjectController extends Controller
         ], 201);
     }
 
+    /**
+     * Display the specified subject.
+     */
     public function show(Subject $subject)
     {
         return response()->json([
@@ -50,15 +75,22 @@ class SubjectController extends Controller
         ]);
     }
 
+    /**
+     * Show the form for editing the specified subject.
+     */
     public function edit(Subject $subject)
     {
         //
     }
 
+    /**
+     * Update the specified subject.
+     */
     public function update(Request $request, Subject $subject)
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
+
             'code' => [
                 'required',
                 'string',
@@ -66,11 +98,18 @@ class SubjectController extends Controller
                 Rule::unique('subjects', 'code')
                     ->ignore($subject->id),
             ],
+
+            'full_mark' => [
+                'required',
+                'numeric',
+                'min:1',
+            ],
         ]);
 
         $subject->update([
             'name' => $validated['name'],
             'code' => strtoupper($validated['code']),
+            'full_mark' => $validated['full_mark'],
         ]);
 
         return response()->json([
@@ -80,6 +119,9 @@ class SubjectController extends Controller
         ]);
     }
 
+    /**
+     * Remove the specified subject.
+     */
     public function destroy(Subject $subject)
     {
         $subject->delete();

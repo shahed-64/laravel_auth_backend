@@ -19,6 +19,7 @@ use App\Http\Controllers\ExaminationController;
 use App\Http\Controllers\HolidayController;
 use App\Http\Controllers\InstituteInfoController;
 use App\Http\Controllers\SectionController;
+use App\Http\Controllers\GradingSystemController;
 
 /*
 |--------------------------------------------------------------------------
@@ -104,6 +105,7 @@ Route::get('/debug-db', function () {
 Route::apiResource('sections', SectionController::class);
 Route::apiResource('other-payments', OtherPaymentController::class);
 Route::apiResource('results', ResultController::class);
+Route::apiResource('grading-systems', GradingSystemController::class);
 Route::apiResource('shifts', ShiftController::class);
 Route::apiResource('examinations', ExaminationController::class);
 Route::apiResource('classes', ClssMController::class);

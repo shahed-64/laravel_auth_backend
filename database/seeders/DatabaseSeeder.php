@@ -22,7 +22,8 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make('12345678'),
             'image' => null,
             'salary' => 000
-                 ]);
+        ]);
+
         Staff::create([
             'name' => 'Jubair Ahmed Masum',
             'user_name' => 'jubair',
@@ -32,6 +33,11 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make('12345678'),
             'image' => null,
             'salary' => 000
-                 ]);
+        ]);
+
+        // Grading System Seeder
+        $this->call([
+            GradingSystemSeeder::class,
+        ]);
     }
 }

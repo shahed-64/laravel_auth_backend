@@ -10,6 +10,7 @@ class Subject extends Model
     protected $fillable = [
         'name',
         'code',
+        'full_mark',
     ];
 
     /**
