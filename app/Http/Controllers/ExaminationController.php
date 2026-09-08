@@ -16,7 +16,7 @@ class ExaminationController extends Controller
 
         return response()->json([
             'status' => true,
-           'data' => $examination
+            'data' => $examination
         ]);
     }
 
@@ -36,9 +36,10 @@ class ExaminationController extends Controller
         $request->validate([
             'examination_type' => 'required|string|max:255',
             'examination_year' => 'required|string|max:255',
+            'exam_mark' => 'nullable|numeric|min:0',
         ]);
 
-        // একই বছরে একই পরীক্ষার নাম ইতিমধ্যে আছে কি না চেক করা
+
         $exists = Examination::where('examination_type', $request->examination_type)
             ->where('examination_year', $request->examination_year)
             ->exists();
@@ -51,13 +52,14 @@ class ExaminationController extends Controller
 
         $exam = Examination::create([
             'examination_type' => $request->examination_type,
-            'examination_year' => $request->examination_year
+            'examination_year' => $request->examination_year,
+            'exam_mark' => $request->exam_mark,
         ]);
 
         return response()->json([
-            'status'    => true,
-            'message'   => 'Examination Created Successfully!',
-            'exam'      => $exam
+            'status' => true,
+            'message' => 'Examination Created Successfully!',
+            'exam' => $exam
         ]);
     }
 
@@ -88,9 +90,10 @@ class ExaminationController extends Controller
         $request->validate([
             'examination_type' => 'required|string|max:255',
             'examination_year' => 'required|string|max:255',
+            'exam_mark' => 'nullable|numeric|min:0',
         ]);
 
-        // আপডেট করার সময় নিজের আইডি বাদ দিয়ে অন্য কোনো রো-তে একই ডেটা আছে কি না চেক করা
+
         $exists = Examination::where('examination_type', $request->examination_type)
             ->where('examination_year', $request->examination_year)
             ->where('id', '!=', $examination->id)
@@ -104,13 +107,14 @@ class ExaminationController extends Controller
 
         $examination->update([
             'examination_type' => $request->examination_type,
-            'examination_year' => $request->examination_year
+            'examination_year' => $request->examination_year,
+            'exam_mark' => $request->exam_mark,
         ]);
 
         return response()->json([
-            'status'    => true,
-            'message'   => 'Examination Updated Successfully!',
-            'exam'      => $examination
+            'status' => true,
+            'message' => 'Examination Updated Successfully!',
+            'exam' => $examination
         ]);
     }
 
@@ -122,8 +126,8 @@ class ExaminationController extends Controller
         $examination->delete();
 
         return response()->json([
-            'status'    => true,
-            'message'   => 'Examination Deleted Successfully!'
+            'status' => true,
+            'message' => 'Examination Deleted Successfully!'
         ]);
     }
 }

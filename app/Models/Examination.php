@@ -6,15 +6,13 @@ use Illuminate\Database\Eloquent\Model;
 
 class Examination extends Model
 {
-    //
-     protected $fillable = [
+    protected $fillable = [
         'examination_type',
-        'examination_year'
+        'examination_year',
+        'exam_mark',
     ];
 
-
-
-        public function examination()
+    public function examination()
     {
         return $this->hasMany(Result::class);
     }

@@ -4,9 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Result;
 use App\Models\Student;
-use App\Models\ClassGroup;
 use App\Models\GroupSubjectMapping;
 use App\Models\GradingSystem;
+use App\Models\Examination;
+use App\Models\Subject;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\Rule;
@@ -41,6 +42,109 @@ class ResultController extends Controller
             ->unique()
             ->values()
             ->toArray();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Calculate GPA For Result List
+        |--------------------------------------------------------------------------
+        */
+
+        $results->each(function ($result) {
+            $examination = Examination::where(
+                'examination_type',
+                $result->exam_type
+            )
+                ->where(
+                    'examination_year',
+                    $result->exam_year
+                )
+                ->first();
+
+            $examMark = $examination?->exam_mark;
+
+            $totalPoints = 0;
+            $subjectCount = 0;
+            $hasFailed = false;
+
+            foreach ($result->resultSubjects as $resultSubject) {
+                $marks = $resultSubject->marks;
+
+                if ($marks === null) {
+                    continue;
+                }
+
+                $fullMark = $examMark !== null
+                    ? (float) $examMark
+                    : (float) (
+                        $resultSubject->subject?->full_mark ?? 100
+                    );
+
+                if ($fullMark <= 0) {
+                    continue;
+                }
+
+                $percentage = (
+                    ((float) $marks / $fullMark) * 100
+                );
+
+                $grading = GradingSystem::where(
+                    'min_percentage',
+                    '<=',
+                    $percentage
+                )
+                    ->orderByDesc('min_percentage')
+                    ->first();
+
+                if (!$grading) {
+                    $point = 0.00;
+                    $hasFailed = true;
+                } else {
+                    $point = (float) $grading->grade_point;
+
+                    if ($point == 0) {
+                        $hasFailed = true;
+                    }
+                }
+
+                $totalPoints += $point;
+                $subjectCount++;
+            }
+
+            $gpa = 0.00;
+
+            if (
+                $subjectCount > 0
+                && !$hasFailed
+            ) {
+                $gpa = $totalPoints / $subjectCount;
+                $gpa = min(5.00, $gpa);
+            }
+
+            $result->setAttribute(
+                'calculated_gpa',
+                number_format($gpa, 2)
+            );
+
+            $result->setAttribute(
+                'calculated_status',
+                $subjectCount > 0 && !$hasFailed
+                    ? 'Pass'
+                    : 'Fail'
+            );
+
+            $result->setAttribute(
+                'exam_mark',
+                $examMark !== null
+                    ? (float) $examMark
+                    : null
+            );
+        });
+
+        /*
+        |--------------------------------------------------------------------------
+        | Student Subject Mapping
+        |--------------------------------------------------------------------------
+        */
 
         $students->each(function ($student) use (
             $allMappedSubjectIds,
@@ -99,6 +203,7 @@ class ResultController extends Controller
                             'name' => $subject->name,
                             'code' => $subject->code,
                             'is_additional' => true,
+                            'full_mark' => $subject->full_mark,
                         ];
                     })
                     ->values();
@@ -126,6 +231,8 @@ class ResultController extends Controller
                             'is_additional' => false,
                             'class_group_id' =>
                                 $mapping->class_group_id,
+                            'full_mark' =>
+                                $mapping->subject?->full_mark,
                         ];
                     })
                     ->filter(function ($subject) {
@@ -202,7 +309,8 @@ class ResultController extends Controller
             'subjects.*.marks' => [
                 'nullable',
                 'numeric',
-                'between:0,999.99',
+                'min:0',
+                'max:999.99',
             ],
 
             'subjects.*.is_additional' => [
@@ -220,12 +328,42 @@ class ResultController extends Controller
                 'At least one subject is required.',
         ]);
 
+        /*
+        |--------------------------------------------------------------------------
+        | Get Student
+        |--------------------------------------------------------------------------
+        */
+
         $student = Student::with([
             'classInfo.subjects',
             'classGroup.subjects'
         ])->findOrFail(
             $validated['student_id']
         );
+
+        /*
+        |--------------------------------------------------------------------------
+        | Get Examination Settings
+        |--------------------------------------------------------------------------
+        */
+
+        $examination = Examination::where(
+            'examination_type',
+            $validated['exam_type']
+        )
+            ->where(
+                'examination_year',
+                $validated['exam_year']
+            )
+            ->first();
+
+        $examMark = $examination?->exam_mark;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Assigned Subject Validation
+        |--------------------------------------------------------------------------
+        */
 
         $classSubjectIds = $student->classInfo
             ? $student->classInfo->subjects
@@ -263,12 +401,19 @@ class ResultController extends Controller
             )
         );
 
+        /*
+        |--------------------------------------------------------------------------
+        | Validate Subjects And Maximum Marks
+        |--------------------------------------------------------------------------
+        */
+
         foreach ($validated['subjects'] as $subjectData) {
             $subjectId = (int) $subjectData['subject_id'];
 
             if (!in_array(
                 $subjectId,
-                $assignedSubjectIds
+                $assignedSubjectIds,
+                true
             )) {
                 return response()->json([
                     'success' => false,
@@ -276,10 +421,67 @@ class ResultController extends Controller
                         'One or more selected subjects are not assigned to this student.'
                 ], 422);
             }
+
+            $marks = $subjectData['marks'] ?? null;
+
+            if ($marks === null || $marks === '') {
+                continue;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Determine Maximum Allowed Marks
+            |--------------------------------------------------------------------------
+            |
+            | If exam_mark exists:
+            |     exam_mark is the maximum.
+            |
+            | Example:
+            |     exam_mark = 20
+            |     marks = 21
+            |     => reject
+            |
+            | If exam_mark is null:
+            |     subject full_mark is the maximum.
+            |
+            */
+
+            if ($examMark !== null) {
+                $maximumMarks = (float) $examMark;
+            } else {
+                $subject = Subject::find($subjectId);
+
+                $maximumMarks = (float) (
+                    $subject?->full_mark ?? 100
+                );
+            }
+
+            if ($maximumMarks <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' =>
+                        'Invalid maximum marks configured for one of the selected subjects.'
+                ], 422);
+            }
+
+            if ((float) $marks > $maximumMarks) {
+                $subject = Subject::find($subjectId);
+
+                return response()->json([
+                    'success' => false,
+                    'message' =>
+                        "Marks for '{$subject?->name}' cannot be greater than {$maximumMarks}."
+                ], 422);
+            }
         }
 
-        $result = DB::transaction(function () use ($validated) {
+        /*
+        |--------------------------------------------------------------------------
+        | Store Result
+        |--------------------------------------------------------------------------
+        */
 
+        $result = DB::transaction(function () use ($validated) {
             $result = Result::create([
                 'student_id' =>
                     $validated['student_id'],
@@ -312,13 +514,11 @@ class ResultController extends Controller
 
         return response()->json([
             'success' => true,
-
             'message' =>
                 'Result successfully stored!',
 
             'data' =>
                 $result
-
         ], 201);
     }
 
@@ -332,14 +532,32 @@ class ResultController extends Controller
 
         /*
         |--------------------------------------------------------------------------
+        | Get Examination Settings
+        |--------------------------------------------------------------------------
+        */
+
+        $examination = Examination::where(
+            'examination_type',
+            $result->exam_type
+        )
+            ->where(
+                'examination_year',
+                $result->exam_year
+            )
+            ->first();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Determine Effective Exam Mark
+        |--------------------------------------------------------------------------
+        */
+
+        $examMark = $examination?->exam_mark;
+
+        /*
+        |--------------------------------------------------------------------------
         | Dynamic Grade Calculation
         |--------------------------------------------------------------------------
-        |
-        | Percentage = Obtained Marks / Full Mark * 100
-        |
-        | Grade and Grade Point are now loaded dynamically
-        | from the grading_systems table.
-        |
         */
 
         $getGradeAndPoint = function (
@@ -360,27 +578,8 @@ class ResultController extends Controller
                 return null;
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Calculate Percentage
-            |--------------------------------------------------------------------------
-            */
-
             $percentage =
                 ($obtainedMarks / $maximumMarks) * 100;
-
-            /*
-            |--------------------------------------------------------------------------
-            | Get Grade From Database
-            |--------------------------------------------------------------------------
-            |
-            | Example:
-            |
-            | 92% -> A+
-            | 75% -> A
-            | 65% -> A-
-            |
-            */
 
             $grading = GradingSystem::where(
                 'min_percentage',
@@ -389,15 +588,6 @@ class ResultController extends Controller
             )
                 ->orderByDesc('min_percentage')
                 ->first();
-
-            /*
-            |--------------------------------------------------------------------------
-            | Fallback
-            |--------------------------------------------------------------------------
-            |
-            | If no grading rule exists, return F.
-            |
-            */
 
             if (!$grading) {
                 return [
@@ -408,17 +598,20 @@ class ResultController extends Controller
 
             return [
                 'grade' => $grading->grade,
-
                 'point' => (float) $grading->grade_point
             ];
         };
 
+        /*
+        |--------------------------------------------------------------------------
+        | Subjects
+        |--------------------------------------------------------------------------
+        */
+
         $subjects = [];
 
         $totalPoints = 0;
-
         $subjectCount = 0;
-
         $hasFailed = false;
 
         $student = $result->student;
@@ -432,10 +625,7 @@ class ResultController extends Controller
                 ->toArray()
             : [];
 
-        foreach (
-            $result->resultSubjects
-            as $resultSubject
-        ) {
+        foreach ($result->resultSubjects as $resultSubject) {
             $marks = $resultSubject->marks;
 
             if ($marks === null) {
@@ -444,13 +634,16 @@ class ResultController extends Controller
 
             /*
             |--------------------------------------------------------------------------
-            | Get Subject Full Mark
+            | Determine Full Mark
             |--------------------------------------------------------------------------
             */
 
-            $fullMark =
-                $resultSubject->subject?->full_mark
-                ?? 100;
+            $fullMark = $examMark !== null
+                ? (float) $examMark
+                : (
+                    $resultSubject->subject?->full_mark
+                    ?? 100
+                );
 
             /*
             |--------------------------------------------------------------------------
@@ -502,20 +695,14 @@ class ResultController extends Controller
                 'marks' =>
                     $marks,
 
-                /*
-                |--------------------------------------------------------------------------
-                | Full Mark
-                |--------------------------------------------------------------------------
-                */
-
                 'full_mark' =>
                     $fullMark,
 
-                /*
-                |--------------------------------------------------------------------------
-                | Dynamic Grade
-                |--------------------------------------------------------------------------
-                */
+                'percentage' =>
+                    round(
+                        ((float) $marks / $fullMark) * 100,
+                        2
+                    ),
 
                 'grade' =>
                     $gradePoint['grade'],
@@ -580,7 +767,6 @@ class ResultController extends Controller
             'status' => true,
 
             'result' => [
-
                 'student_name' =>
                     $student->full_name
                     ?? $student->name
@@ -625,6 +811,11 @@ class ResultController extends Controller
                 'year' =>
                     $result->exam_year,
 
+                'exam_mark' =>
+                    $examMark !== null
+                        ? (float) $examMark
+                        : null,
+
                 'gpa' =>
                     number_format(
                         $finalGpa,
@@ -660,15 +851,18 @@ class ResultController extends Controller
 
     public function edit(Result $result)
     {
+        //
     }
 
     public function update(
         Request $request,
         Result $result
     ) {
+        //
     }
 
     public function destroy(Result $result)
     {
+        //
     }
 }
