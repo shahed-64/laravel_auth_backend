@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\FinalResult;
 use App\Models\Student;
 use App\Models\Result;
+use App\Models\Examination;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -13,19 +14,66 @@ class FinalResultController extends Controller
     /**
      * Display all final result configurations.
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $year = $request->query('year');
+
         $finalResults = FinalResult::with('examination')
             ->latest()
             ->get();
 
-        $totalPercentage = FinalResult::sum('percentage');
+        /*
+        |--------------------------------------------------------------------------
+        | Year-wise Percentage Totals
+        |--------------------------------------------------------------------------
+        */
+        $yearTotals = $finalResults
+            ->groupBy(function ($item) {
+                return $item->examination?->examination_year;
+            })
+            ->map(function ($items) {
+                return round(
+                    $items->sum(function ($item) {
+                        return (float) $item->percentage;
+                    }),
+                    2
+                );
+            });
+
+        /*
+        |--------------------------------------------------------------------------
+        | Selected Year Total
+        |--------------------------------------------------------------------------
+        */
+        $totalPercentage = 0;
+
+        if ($year !== null && $year !== '') {
+            $totalPercentage = (float) (
+                $yearTotals[(string) $year] ?? 0
+            );
+        }
 
         return response()->json([
             'status' => true,
             'data' => $finalResults,
-            'total_percentage' => (float) $totalPercentage,
-            'is_complete' => (float) $totalPercentage === 100.0,
+
+            'total_percentage' =>
+                round($totalPercentage, 2),
+
+            'remaining_percentage' =>
+                round(
+                    max(
+                        0,
+                        100 - $totalPercentage
+                    ),
+                    2
+                ),
+
+            'is_complete' =>
+                round($totalPercentage, 2) === 100.00,
+
+            'year_totals' =>
+                $yearTotals,
         ]);
     }
 
@@ -41,6 +89,7 @@ class FinalResultController extends Controller
                 'exists:examinations,id',
                 'unique:final_results,examination_id',
             ],
+
             'percentage' => [
                 'required',
                 'numeric',
@@ -70,17 +119,63 @@ class FinalResultController extends Controller
                 'Percentage cannot be greater than 100.',
         ]);
 
-        $currentPercentage = (float) FinalResult::sum('percentage');
+        /*
+        |--------------------------------------------------------------------------
+        | Get Examination
+        |--------------------------------------------------------------------------
+        */
+        $examination = Examination::find(
+            $validated['examination_id']
+        );
 
+        if (!$examination) {
+            return response()->json([
+                'status' => false,
+                'message' =>
+                    'The selected examination does not exist.',
+            ], 404);
+        }
+
+        $year = $examination->examination_year;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Current Percentage For This Year Only
+        |--------------------------------------------------------------------------
+        */
+        $currentPercentage = (float) FinalResult::whereHas(
+            'examination',
+            function ($query) use ($year) {
+                $query->where(
+                    'examination_year',
+                    $year
+                );
+            }
+        )->sum('percentage');
+
+        /*
+        |--------------------------------------------------------------------------
+        | New Total
+        |--------------------------------------------------------------------------
+        */
         $newTotal =
             $currentPercentage +
             (float) $validated['percentage'];
 
+        /*
+        |--------------------------------------------------------------------------
+        | Prevent More Than 100%
+        |--------------------------------------------------------------------------
+        */
         if ($newTotal > 100) {
             return response()->json([
                 'status' => false,
+
                 'message' =>
-                    'Total percentage cannot exceed 100%.',
+                    "Total percentage for {$year} cannot exceed 100%.",
+
+                'year' =>
+                    $year,
 
                 'current_percentage' =>
                     round($currentPercentage, 2),
@@ -99,6 +194,11 @@ class FinalResultController extends Controller
             ], 422);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Create Configuration
+        |--------------------------------------------------------------------------
+        */
         $finalResult = FinalResult::create([
             'examination_id' =>
                 $validated['examination_id'],
@@ -109,8 +209,23 @@ class FinalResultController extends Controller
 
         $finalResult->load('examination');
 
+        /*
+        |--------------------------------------------------------------------------
+        | Updated Year Total
+        |--------------------------------------------------------------------------
+        */
+        $totalPercentage = (float) FinalResult::whereHas(
+            'examination',
+            function ($query) use ($year) {
+                $query->where(
+                    'examination_year',
+                    $year
+                );
+            }
+        )->sum('percentage');
+
         $totalPercentage =
-            (float) FinalResult::sum('percentage');
+            round($totalPercentage, 2);
 
         return response()->json([
             'status' => true,
@@ -118,10 +233,14 @@ class FinalResultController extends Controller
             'message' =>
                 'Final result examination configuration added successfully.',
 
-            'data' => $finalResult,
+            'data' =>
+                $finalResult,
+
+            'year' =>
+                $year,
 
             'total_percentage' =>
-                round($totalPercentage, 2),
+                $totalPercentage,
 
             'remaining_percentage' =>
                 round(
@@ -133,7 +252,7 @@ class FinalResultController extends Controller
                 ),
 
             'is_complete' =>
-                $totalPercentage === 100.0,
+                $totalPercentage === 100.00,
         ], 201);
     }
 
@@ -179,20 +298,60 @@ class FinalResultController extends Controller
                 'Percentage cannot be greater than 100.',
         ]);
 
-        $currentTotal =
-            (float) FinalResult::sum('percentage');
+        /*
+        |--------------------------------------------------------------------------
+        | Get Examination Year
+        |--------------------------------------------------------------------------
+        */
+        $finalResult->load('examination');
 
+        $year =
+            $finalResult->examination?->examination_year;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Current Year Total Without This Record
+        |--------------------------------------------------------------------------
+        */
+        $currentTotal = (float) FinalResult::whereHas(
+            'examination',
+            function ($query) use ($year) {
+                $query->where(
+                    'examination_year',
+                    $year
+                );
+            }
+        )
+            ->where(
+                'id',
+                '!=',
+                $finalResult->id
+            )
+            ->sum('percentage');
+
+        /*
+        |--------------------------------------------------------------------------
+        | New Total
+        |--------------------------------------------------------------------------
+        */
         $newTotal =
-            $currentTotal
-            - (float) $finalResult->percentage
-            + (float) $validated['percentage'];
+            $currentTotal +
+            (float) $validated['percentage'];
 
+        /*
+        |--------------------------------------------------------------------------
+        | Prevent More Than 100%
+        |--------------------------------------------------------------------------
+        */
         if ($newTotal > 100) {
             return response()->json([
                 'status' => false,
 
                 'message' =>
-                    'Total percentage cannot exceed 100%.',
+                    "Total percentage for {$year} cannot exceed 100%.",
+
+                'year' =>
+                    $year,
 
                 'current_percentage' =>
                     round($currentTotal, 2),
@@ -204,17 +363,18 @@ class FinalResultController extends Controller
                     round(
                         max(
                             0,
-                            100 -
-                            (
-                                $currentTotal
-                                - (float) $finalResult->percentage
-                            )
+                            100 - $currentTotal
                         ),
                         2
                     ),
             ], 422);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Update
+        |--------------------------------------------------------------------------
+        */
         $finalResult->update([
             'percentage' =>
                 $validated['percentage'],
@@ -222,8 +382,23 @@ class FinalResultController extends Controller
 
         $finalResult->load('examination');
 
+        /*
+        |--------------------------------------------------------------------------
+        | Updated Year Total
+        |--------------------------------------------------------------------------
+        */
+        $totalPercentage = (float) FinalResult::whereHas(
+            'examination',
+            function ($query) use ($year) {
+                $query->where(
+                    'examination_year',
+                    $year
+                );
+            }
+        )->sum('percentage');
+
         $totalPercentage =
-            (float) FinalResult::sum('percentage');
+            round($totalPercentage, 2);
 
         return response()->json([
             'status' => true,
@@ -231,10 +406,14 @@ class FinalResultController extends Controller
             'message' =>
                 'Final result percentage updated successfully.',
 
-            'data' => $finalResult,
+            'data' =>
+                $finalResult,
+
+            'year' =>
+                $year,
 
             'total_percentage' =>
-                round($totalPercentage, 2),
+                $totalPercentage,
 
             'remaining_percentage' =>
                 round(
@@ -246,7 +425,7 @@ class FinalResultController extends Controller
                 ),
 
             'is_complete' =>
-                $totalPercentage === 100.0,
+                $totalPercentage === 100.00,
         ]);
     }
 
@@ -256,10 +435,40 @@ class FinalResultController extends Controller
     public function destroy(
         FinalResult $finalResult
     ): JsonResponse {
+        /*
+        |--------------------------------------------------------------------------
+        | Get Year Before Delete
+        |--------------------------------------------------------------------------
+        */
+        $finalResult->load('examination');
+
+        $year =
+            $finalResult->examination?->examination_year;
+
+        /*
+        |--------------------------------------------------------------------------
+        | Delete
+        |--------------------------------------------------------------------------
+        */
         $finalResult->delete();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Recalculate Percentage For That Year
+        |--------------------------------------------------------------------------
+        */
+        $totalPercentage = (float) FinalResult::whereHas(
+            'examination',
+            function ($query) use ($year) {
+                $query->where(
+                    'examination_year',
+                    $year
+                );
+            }
+        )->sum('percentage');
+
         $totalPercentage =
-            (float) FinalResult::sum('percentage');
+            round($totalPercentage, 2);
 
         return response()->json([
             'status' => true,
@@ -267,8 +476,11 @@ class FinalResultController extends Controller
             'message' =>
                 'Final result examination removed successfully.',
 
+            'year' =>
+                $year,
+
             'total_percentage' =>
-                round($totalPercentage, 2),
+                $totalPercentage,
 
             'remaining_percentage' =>
                 round(
@@ -280,7 +492,7 @@ class FinalResultController extends Controller
                 ),
 
             'is_complete' =>
-                $totalPercentage === 100.0,
+                $totalPercentage === 100.00,
         ]);
     }
 
@@ -296,12 +508,11 @@ class FinalResultController extends Controller
         Request $request,
         $studentId
     ): JsonResponse {
-        /*
-        |--------------------------------------------------------------------------
-        | Validate Year
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Validate Year
+         * |--------------------------------------------------------------------------
+         */
         $year = $request->query('year');
 
         if (!$year) {
@@ -312,12 +523,11 @@ class FinalResultController extends Controller
             ], 422);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Find Student
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Find Student
+         * |--------------------------------------------------------------------------
+         */
         $student = Student::with([
             'classInfo',
             'classGroup',
@@ -333,12 +543,11 @@ class FinalResultController extends Controller
             ], 404);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Final Result Configuration For Selected Year
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Final Result Configuration For Selected Year
+         * |--------------------------------------------------------------------------
+         */
         $finalResults = FinalResult::with('examination')
             ->whereHas('examination', function ($query) use ($year) {
                 $query->where(
@@ -351,18 +560,16 @@ class FinalResultController extends Controller
         if ($finalResults->isEmpty()) {
             return response()->json([
                 'status' => false,
-
                 'message' =>
                     "No final result configuration found for {$year}.",
             ], 404);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Total Percentage
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Total Percentage
+         * |--------------------------------------------------------------------------
+         */
         $totalPercentage =
             $finalResults->sum(function ($item) {
                 return (float) $item->percentage;
@@ -371,22 +578,18 @@ class FinalResultController extends Controller
         $totalPercentage =
             round($totalPercentage, 2);
 
-        /*
-        |--------------------------------------------------------------------------
-        | Final Result Must Be Exactly 100%
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Final Result Must Be Exactly 100%
+         * |--------------------------------------------------------------------------
+         */
         if ($totalPercentage !== 100.00) {
             return response()->json([
                 'status' => false,
-
                 'message' =>
                     'Final result configuration must total exactly 100%.',
-
                 'total_percentage' =>
                     $totalPercentage,
-
                 'remaining_percentage' =>
                     round(
                         100 - $totalPercentage,
@@ -395,15 +598,15 @@ class FinalResultController extends Controller
             ], 422);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Get Student Results
-        |--------------------------------------------------------------------------
-        |
-        | Existing Result System remains untouched.
-        |
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Get Student Results
+         * |--------------------------------------------------------------------------
+         * |
+         * | Existing Result System remains untouched.
+         * |
+         * |--------------------------------------------------------------------------
+         */
         $results = Result::with([
             'resultSubjects.subject',
         ])
@@ -411,40 +614,35 @@ class FinalResultController extends Controller
             ->where('exam_year', $year)
             ->get();
 
-        /*
-        |--------------------------------------------------------------------------
-        | No Result Found
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | No Result Found
+         * |--------------------------------------------------------------------------
+         */
         if ($results->isEmpty()) {
             return response()->json([
                 'status' => false,
-
                 'message' =>
                     "No examination results found for this student in {$year}.",
             ], 404);
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Build Exam Data
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Build Exam Data
+         * |--------------------------------------------------------------------------
+         */
         $examResults = [];
 
         foreach ($finalResults as $configuration) {
             $exam = $configuration->examination;
 
-            /*
-            |--------------------------------------------------------------------------
-            | Find Student Result For This Examination
-            |--------------------------------------------------------------------------
-            */
-
+            /**
+             * |--------------------------------------------------------------------------
+             * | Find Student Result For This Examination
+             * |--------------------------------------------------------------------------
+             */
             $result = $results->first(function ($item) use ($exam) {
-
                 return
                     (string) $item->exam_type ===
                     (string) $exam->examination_type;
@@ -453,24 +651,18 @@ class FinalResultController extends Controller
             $examResults[] = [
                 'id' =>
                     $exam->id,
-
                 'name' =>
                     $exam->examination_type,
-
                 'year' =>
                     $exam->examination_year,
-
                 'exam_mark' =>
                     $exam->exam_mark !== null
                         ? (float) $exam->exam_mark
                         : null,
-
                 'percentage' =>
                     (float) $configuration->percentage,
-
                 'result_id' =>
                     $result?->id,
-
                 'subjects' =>
                     $result
                         ? $result->resultSubjects
@@ -478,18 +670,15 @@ class FinalResultController extends Controller
             ];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Build Subject Collection
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Build Subject Collection
+         * |--------------------------------------------------------------------------
+         */
         $subjects = [];
 
         foreach ($examResults as $examData) {
-
             foreach ($examData['subjects'] as $resultSubject) {
-
                 $subject = $resultSubject->subject;
 
                 if (!$subject) {
@@ -498,58 +687,50 @@ class FinalResultController extends Controller
 
                 $subjectId = $subject->id;
 
-                /*
-                |--------------------------------------------------------------------------
-                | Create Subject
-                |--------------------------------------------------------------------------
-                */
-
+                /**
+                 * |--------------------------------------------------------------------------
+                 * | Create Subject
+                 * |--------------------------------------------------------------------------
+                 */
                 if (!isset($subjects[$subjectId])) {
-
                     $subjects[$subjectId] = [
                         'id' =>
                             $subjectId,
-
                         'name' =>
                             $subject->subject_name
                             ?? $subject->name
                             ?? 'Unknown Subject',
-
                         'full_mark' =>
                             $subject->full_mark !== null
                                 ? (float) $subject->full_mark
                                 : null,
-
                         'exams' => [],
                     ];
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Marks
-                |--------------------------------------------------------------------------
-                */
-
+                /**
+                 * |--------------------------------------------------------------------------
+                 * | Marks
+                 * |--------------------------------------------------------------------------
+                 */
                 $marks =
                     $resultSubject->marks ?? 0;
 
-                /*
-                |--------------------------------------------------------------------------
-                | Full Mark
-                |--------------------------------------------------------------------------
-                */
-
+                /**
+                 * |--------------------------------------------------------------------------
+                 * | Full Mark
+                 * |--------------------------------------------------------------------------
+                 */
                 $fullMark =
                     $examData['exam_mark']
                     ?? $subject->full_mark
                     ?? 100;
 
-                /*
-                |--------------------------------------------------------------------------
-                | Save Exam Marks
-                |--------------------------------------------------------------------------
-                */
-
+                /**
+                 * |--------------------------------------------------------------------------
+                 * | Save Exam Marks
+                 * |--------------------------------------------------------------------------
+                 */
                 $subjects[$subjectId]['exams'][
                     $examData['id']
                 ] = [
@@ -557,36 +738,30 @@ class FinalResultController extends Controller
                         is_numeric($marks)
                             ? (float) $marks
                             : 0,
-
                     'full_mark' =>
                         (float) $fullMark,
-
                     'percentage' =>
                         (float) $examData['percentage'],
                 ];
             }
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Process Final Subject Results
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Process Final Subject Results
+         * |--------------------------------------------------------------------------
+         */
         $processedSubjects = [];
 
         foreach ($subjects as $subject) {
-
             $weightedPercentage = 0;
 
-            /*
-            |--------------------------------------------------------------------------
-            | Calculate Weighted Percentage
-            |--------------------------------------------------------------------------
-            */
-
+            /**
+             * |--------------------------------------------------------------------------
+             * | Calculate Weighted Percentage
+             * |--------------------------------------------------------------------------
+             */
             foreach ($examResults as $examData) {
-
                 $examId =
                     $examData['id'];
 
@@ -594,12 +769,11 @@ class FinalResultController extends Controller
                     $subject['exams'][$examId]
                     ?? null;
 
-                /*
-                |--------------------------------------------------------------------------
-                | If Student Has No Result For This Subject In This Exam
-                |--------------------------------------------------------------------------
-                */
-
+                /**
+                 * |--------------------------------------------------------------------------
+                 * | If Student Has No Result For This Subject In This Exam
+                 * |--------------------------------------------------------------------------
+                 */
                 if (!$examSubject) {
                     continue;
                 }
@@ -614,21 +788,19 @@ class FinalResultController extends Controller
                     continue;
                 }
 
-                /*
-                |--------------------------------------------------------------------------
-                | Convert Marks To Percentage
-                |--------------------------------------------------------------------------
-                */
-
+                /**
+                 * |--------------------------------------------------------------------------
+                 * | Convert Marks To Percentage
+                 * |--------------------------------------------------------------------------
+                 */
                 $examPercentage =
                     ($marks / $fullMark) * 100;
 
-                /*
-                |--------------------------------------------------------------------------
-                | Apply Final Result Weight
-                |--------------------------------------------------------------------------
-                */
-
+                /**
+                 * |--------------------------------------------------------------------------
+                 * | Apply Final Result Weight
+                 * |--------------------------------------------------------------------------
+                 */
                 $weightedPercentage +=
                     $examPercentage
                     *
@@ -644,58 +816,42 @@ class FinalResultController extends Controller
                     2
                 );
 
-            /*
-            |--------------------------------------------------------------------------
-            | Grade
-            |--------------------------------------------------------------------------
-            */
-
+            /**
+             * |--------------------------------------------------------------------------
+             * | Grade
+             * |--------------------------------------------------------------------------
+             */
             if ($weightedPercentage >= 80) {
-
                 $grade = 'A+';
                 $point = 5.00;
-
             } elseif ($weightedPercentage >= 70) {
-
                 $grade = 'A';
                 $point = 4.00;
-
             } elseif ($weightedPercentage >= 60) {
-
                 $grade = 'A-';
                 $point = 3.50;
-
             } elseif ($weightedPercentage >= 50) {
-
                 $grade = 'B';
                 $point = 3.00;
-
             } elseif ($weightedPercentage >= 40) {
-
                 $grade = 'C';
                 $point = 2.00;
-
             } elseif ($weightedPercentage >= 33) {
-
                 $grade = 'D';
                 $point = 1.00;
-
             } else {
-
                 $grade = 'F';
                 $point = 0.00;
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Prepare Exam Marks For Frontend
-            |--------------------------------------------------------------------------
-            */
-
+            /**
+             * |--------------------------------------------------------------------------
+             * | Prepare Exam Marks For Frontend
+             * |--------------------------------------------------------------------------
+             */
             $examMarks = [];
 
             foreach ($examResults as $examData) {
-
                 $examId =
                     $examData['id'];
 
@@ -708,62 +864,50 @@ class FinalResultController extends Controller
                         $examSubject
                             ? $examSubject['marks']
                             : null,
-
                     'full_mark' =>
                         $examSubject
                             ? $examSubject['full_mark']
                             : null,
-
                     'percentage' =>
                         $examData['percentage'],
                 ];
             }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Final Subject Data
-            |--------------------------------------------------------------------------
-            */
-
+            /**
+             * |--------------------------------------------------------------------------
+             * | Final Subject Data
+             * |--------------------------------------------------------------------------
+             */
             $processedSubjects[] = [
                 'id' =>
                     $subject['id'],
-
                 'name' =>
                     $subject['name'],
-
                 'full_mark' =>
                     $subject['full_mark'],
-
                 'exams' =>
                     $examMarks,
-
                 'obtained_total' =>
                     $weightedPercentage,
-
                 'letter_grade' =>
                     $grade,
-
                 'grade_point' =>
                     $point,
             ];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Overall GPA
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Overall GPA
+         * |--------------------------------------------------------------------------
+         */
         $overallGpa = 0;
 
         if (count($processedSubjects) > 0) {
-
             $totalPoint = 0;
             $subjectCount = 0;
 
             foreach ($processedSubjects as $subject) {
-
                 $totalPoint +=
                     (float) $subject['grade_point'];
 
@@ -771,79 +915,65 @@ class FinalResultController extends Controller
             }
 
             if ($subjectCount > 0) {
-
                 $overallGpa =
                     $totalPoint /
                     $subjectCount;
             }
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Maximum GPA = 5
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Maximum GPA = 5
+         * |--------------------------------------------------------------------------
+         */
         $overallGpa =
             min(
                 5,
                 $overallGpa
             );
 
-        /*
-        |--------------------------------------------------------------------------
-        | Student Information
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Student Information
+         * |--------------------------------------------------------------------------
+         */
         $studentData = [
             'id' =>
                 $student->id,
-
             'name' =>
                 $student->full_name,
-
             'student_id' =>
                 $student->student_id,
-
-            'image' => $student->image,
-
+            'image' =>
+                $student->image,
             'campus' =>
                 $student->campus ?? null,
-
             'shift' =>
                 $student->shift?->shift_name
                 ?? $student->shift?->name
                 ?? null,
-
             'version' =>
                 $student->version ?? null,
-
             'session' =>
                 $student->session ?? null,
-
             'class' =>
                 $student->classInfo?->class_name
                 ?? null,
-
             'group' =>
                 $student->classGroup?->group_name
                 ?? null,
-
             'section' =>
                 $student->section?->section_name
                 ?? null,
-
             'roll' =>
                 $student->roll ?? null,
         ];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Final Response
-        |--------------------------------------------------------------------------
-        */
-
+        /**
+         * |--------------------------------------------------------------------------
+         * | Final Response
+         * |--------------------------------------------------------------------------
+         */
         return response()->json([
             'status' => true,
 
