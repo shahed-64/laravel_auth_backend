@@ -17,7 +17,7 @@ class StudentController extends Controller
      */
     public function index()
     {
-        // classGroup সহ student load করা হচ্ছে
+        // classGroup
         $students = Student::with([
             'payments',
             'section',
